@@ -10,37 +10,35 @@
 #include <cmath>
 using namespace std;
 
+int GetDuration(int fromMonth, int fromDate, int toMonth, int toDate)
+{
+	const int MonthDays[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+	if (fromMonth == toMonth)
+		return toDate - fromDate;
+
+	int durations = MonthDays[fromMonth] - fromDate + 1;
+	for (int i = fromMonth + 1; i < toMonth; ++i) {
+		durations += MonthDays[i];
+	}
+	durations += toDate;
+	return durations - 1;
+}
+
+double GetDistance(int fromX, int fromY, int toX, int toY)
+{
+	int deltaX = fromX - toX;
+	int deltaY = fromY - toY;
+	return sqrt(deltaX * deltaX + deltaY * deltaY);
+}
+
 class Birds
 {
-	int GetDuration(int fromMonth, int fromDate, int toMonth, int toDate)
-	{
-		const int MonthDays[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
-		if (fromMonth == toMonth)
-			return toDate - fromDate;
-
-		int durations = MonthDays[fromMonth] - fromDate + 1;
-		for (int i = fromMonth + 1; i < toMonth; ++i) {
-			durations += MonthDays[i];
-		}
-		durations += toDate;
-		return durations - 1;
-	}
-
-	double GetDistance(int fromX, int fromY, int toX, int toY)
-	{
-		int deltaX = fromX - toX;
-		int deltaY = fromY - toY;
-		return sqrt(deltaX * deltaX + deltaY * deltaY);
-	}
-
 	struct BirdStop
 	{
-		BirdStop() : redundant(false) {}
-
 		int mon, date;
 		int x, y;
-		bool redundant;
+		int duration;
 
 		bool operator< (const BirdStop& other) const
 		{
@@ -50,19 +48,79 @@ class Birds
 
 	struct Region
 	{
+		Region() : duration(0) {}
+
 		Region(const BirdStop& stop) 
+			: duration(0)
+		{
+			AddStop(stop);
+		}
+
+		void AddStop(const BirdStop& stop)
 		{
 			stops.push_back(stop);
+			duration += stop.duration;
 		}
 
 		vector<BirdStop> stops;
+		int duration;
 	};
+
+	vector<BirdStop> CombineRedundantStops(const vector<BirdStop>& stops)
+	{
+		vector<bool> IsRedundantStop;
+
+		IsRedundantStop.push_back(false);	// the first stop can't be redundant
+		for (unsigned int i = 1; i < stops.size(); ++i) {
+			IsRedundantStop.push_back( stops[i].x == stops[i-1].x && stops[i].y == stops[i-1].y );
+		}
+
+		vector<BirdStop> ret;
+		for (unsigned int i = 0; i < IsRedundantStop.size(); ++i) {
+			if (!IsRedundantStop[i])
+				ret.push_back( stops[i] );
+		}
+
+		return ret;
+	}
+
+	void CalculateDurations(vector<BirdStop>& stops)
+	{
+		const unsigned int numStops = stops.size();
+		int numDays = 0;
+		for (unsigned int i = 1; i < numStops; ++i) {
+			int dur = GetDuration(stops[i-1].mon, stops[i-1].date, stops[i].mon, stops[i].date);
+			stops[i-1].duration = dur;
+			numDays += dur;
+		}
+//		stops.back().duration = 365 - numDays;
+		stops.back().duration = GetDuration(stops.back().mon, stops.back().date, 12, 31) + 1;	// Dec 31 has to be included, hence + 1
+	}
+
+
+	bool CanCombine(const Region& region, const BirdStop& stop) const
+	{
+		// criteria for combine a BirdStop into a region
+		// stop.duration < 90	=> if it is greater equal to 90, there is no need to combine
+		// region.duration < 90 => if it is greater equal to 90, there is no need to combine more
+		// distance between stop and all stops inside the region should be less than 1000
+		if (region.duration >= 90 || stop.duration >= 90)
+			return false;
+
+		for (unsigned int i = 0; i < region.stops.size(); ++i) {
+			if (GetDistance(region.stops[i].x, region.stops[i].y, stop.x, stop.y) >= 1000)
+				return false;
+		}
+
+		return true;
+	}
 
 	bool IsRegionApart(const Region& reg1, const Region& reg2)
 	{
-		for (int i = 0; i < reg1.stops.size(); ++i) {
-			for (int j = 0; j < reg2.stops.size(); ++j) {
-				if (GetDistance(reg1.stops[i].x, reg1.stops[i].y, reg2.stops[j].x, reg2.stops[j].y) < 1000)
+		for (unsigned int i = 0; i < reg1.stops.size(); ++i) {
+			for (unsigned int j = 0; j < reg2.stops.size(); ++j) {
+				double dist = GetDistance(reg1.stops[i].x, reg1.stops[i].y, reg2.stops[j].x, reg2.stops[j].y);
+				if (dist < 1000.f)
 					return false;
 			}
 		}
@@ -92,53 +150,52 @@ public:
 	{
 		vector<BirdStop> stops;
 
-		for (int i = 0; i < birdMoves.size(); ++i) {
+		for (unsigned int i = 0; i < birdMoves.size(); ++i) {
 			stops.push_back( Parse(birdMoves[i]) );
 		}
 
 		sort(stops.begin(), stops.end());
 
-		// group stops into regions, if two location are less than 1000 miles away from each other
-		// according to the question, it is in the same region
-		for (int i = 1; i < stops.size(); ++i) {
-			if (GetDistance(stops[i-1].x, stops[i-1].y, stops[i].x, stops[i].y) < 1000) {
-				// mark redundant stops
-				stops[i].redundant = true;
-			}
-		}
-
-		vector<Region> regions;
-		for (int i = 0; i < stops.size(); ++i) {
-			if (stops[i].redundant == false)
-				regions.push_back(stops[i]);
-			else if (regions.back().stops.back().x != stops[i].x && regions.back().stops.back().y != stops[i].y)
-				regions.back().stops.push_back(stops[i]);
-		}
+		// combine stops that are adjacent to each other and have exact same location
+		stops = CombineRedundantStops(stops);
 
 		// calculate durations
-		const int numRegions = regions.size();
-		int numDays = 0;
-		vector<int> durations;
-		for (int i = 1; i < numRegions; ++i) {
-			int dur = GetDuration(regions[i-1].stops[0].mon, regions[i-1].stops[0].date, regions[i].stops[0].mon, regions[i].stops[0].date);
-			durations.push_back( dur );
-			numDays += dur;
-		}
-		durations.push_back( 365 - numDays );
+		CalculateDurations(stops);
 
-		// check duration, we need to stay in 2 places for more than 90 days
-		vector<int> longStays;
-		for (int i = 0; i < durations.size(); ++i) {
-			 if (durations[i] >= 90) 
-				 longStays.push_back(i);
-		}
-		if (longStays.size() < 2)
-			return 0;
+		// calcuate distance between Regions
+		// there are different ways to form region, so we try all kinds of possibility
+		for (unsigned int i = 0; i < stops.size()-1; ) {
+			// form the first region
+			Region region1(stops[i]);
+			int ii = i + 1;
+			while (CanCombine(region1, stops[ii])) {
+				region1.AddStop(stops[ii++]);
+			}
+		
+			if (region1.duration < 90) {		// if the duration is still less than 90, then we can skip
+				i = ii;
+				continue;
+			} 
+			else {
+				i++;							// normal path to increase i
+			}
+				
+			for (unsigned int j = ii; j < stops.size(); ) {
+				Region region2(stops[j]);
+				unsigned int jj = j + 1;
+				while (jj < stops.size() && CanCombine(region2, stops[jj])) {
+					region2.AddStop(stops[jj++]);
+				}
 
-		// calcuate distance between longStays
-		for (int i = 0; i < longStays.size(); ++i) {
-			for (int j = i+1; j < longStays.size(); ++j) {
-				if (IsRegionApart(regions[i], regions[j]))
+				if (region2.duration < 90) {
+					j = jj;
+					continue;
+				}
+				else {
+					j++;						// normal path to increase j
+				}
+
+				if (IsRegionApart(region1, region2))
 					return 1;
 			}
 		}
